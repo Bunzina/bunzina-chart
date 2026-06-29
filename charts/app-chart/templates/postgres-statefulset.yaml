@@ -1,36 +1,34 @@
-{{- if .Values.postgres.enabled }}
+{{- if .Values.database.enabled }}
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
-  name: postgres
+  name: {{ .Values.database.name }}
   namespace: {{ .Values.namespace }}
   labels:
-    app.kubernetes.io/name: postgres
-    app.kubernetes.io/part-of: bunzina
+    {{- include "app-chart.labels" (dict "name" .Values.database.name "root" $) | nindent 4 }}
 spec:
-  serviceName: postgres
+  serviceName: {{ .Values.database.name }}
   replicas: 1
   selector:
     matchLabels:
-      app.kubernetes.io/name: postgres
+      {{- include "app-chart.selectorLabels" (dict "name" .Values.database.name) | nindent 6 }}
   template:
     metadata:
       labels:
-        app.kubernetes.io/name: postgres
-        app.kubernetes.io/part-of: bunzina
+        {{- include "app-chart.labels" (dict "name" .Values.database.name "root" $) | nindent 8 }}
     spec:
       containers:
-        - name: postgres
-          image: {{ .Values.postgres.image }}
+        - name: {{ .Values.database.name }}
+          image: {{ .Values.database.image }}
           ports:
-            - name: postgres
-              containerPort: 5432
+            - name: {{ .Values.database.name }}
+              containerPort: {{ .Values.database.port }}
           envFrom:
             - secretRef:
-                name: postgres-secret
+                name: {{ .Values.database.name }}-secret
           env:
             - name: PGDATA
-              value: /var/lib/postgresql/data/pgdata   # subdir evita lost+found
+              value: /var/lib/postgresql/data/pgdata
           volumeMounts:
             - name: data
               mountPath: /var/lib/postgresql/data
@@ -49,14 +47,14 @@ spec:
             timeoutSeconds: 5
             failureThreshold: 6
           resources:
-            {{- toYaml .Values.postgres.resources | nindent 12 }}
+            {{- toYaml .Values.database.resources | nindent 12 }}
   volumeClaimTemplates:
     - metadata:
         name: data
       spec:
         accessModes: ["ReadWriteOnce"]
-        storageClassName: {{ .Values.postgres.storageClassName }}
+        storageClassName: {{ .Values.database.persistence.storageClassName }}
         resources:
           requests:
-            storage: {{ .Values.postgres.storage }}
+            storage: {{ .Values.database.persistence.storage }}
 {{- end }}

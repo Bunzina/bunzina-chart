@@ -1,0 +1,39 @@
+# Defaults genéricos. O umbrella sobrescreve estes valores.
+namespace: default
+
+app:
+  name: app
+  image:
+    repository: ""
+    tag: ""
+    pullPolicy: IfNotPresent
+  replicaCount: 1
+  containerPort: 3000
+  service:
+    type: ClusterIP
+    port: 80
+  ingress:
+    enabled: false
+    className: alb
+    annotations: {}
+  autoscaling:
+    enabled: false
+    minReplicas: 1
+    maxReplicas: 3
+    targetCPU: 70
+  resources: {}
+  probes:
+    path: /health
+  config: {}
+  secret: {}
+
+database:
+  enabled: false
+  name: postgres
+  image: postgres:15
+  port: 5432
+  persistence:
+    storage: 1Gi
+    storageClassName: ""
+  secret: {}
+  resources: {}

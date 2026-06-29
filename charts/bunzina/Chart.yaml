@@ -1,6 +1,0 @@
-apiVersion: v2
-name: bunzina-chart
-description: API Bunzina + Postgres in-cluster
-type: application
-version: 0.1.0
-appVersion: "1.0.0"

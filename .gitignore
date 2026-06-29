@@ -1,0 +1,10 @@
+# Helm — artefatos de empacotamento/dependência
+*.tgz
+charts/**/charts/
+charts/**/Chart.lock
+
+# Segredos locais (nunca commitar)
+values.secret.yaml
+
+# SO / editor
+.DS_Store

@@ -1,120 +1,132 @@
 # bunzina-chart
 
-Helm chart que empacota a **API Bunzina** (Bun + Elysia) e seu **PostgreSQL** para rodar em Kubernetes (AWS EKS). É a forma versionada e parametrizável de fazer deploy — substitui os manifests `kubectl apply -f k8s/...` por uma única release com `values.yaml`, `helm upgrade` e `rollback`.
+Repositório do **`app-chart`** — um Helm chart **genérico e reutilizável** para
+aplicações stateless com banco in-cluster **opcional**. Não tem nada hardcoded:
+nomes, imagem, ingress, HPA e Postgres saem todos de `values`.
 
-O chart é publicado como **artefato OCI** no Amazon ECR.
+Cada aplicação (como o Bunzina) cria seu próprio **umbrella** — um chart só com
+`Chart.yaml` + `values.yaml` — que declara o `app-chart` como dependência e
+preenche os valores. É o padrão **subchart/umbrella** do Helm.
 
 ---
 
-## O que o chart instala
-
-| Componente | Recursos |
-| --- | --- |
-| **API** | `Deployment` + `Service` (ClusterIP) + `Ingress` (ALB) + `HPA` |
-| **Banco** | `StatefulSet` Postgres + `Service` headless + `PVC` (EBS `gp3`) |
-| **Config** | `ConfigMap` (não-sensível) + `Secret` (credenciais) |
-| **Namespace** | criado pelo próprio chart |
+## Estrutura
 
 ```
-            Internet
-               │
-        ┌──────▼──────┐
-        │ Ingress/ALB │
-        └──────┬──────┘
-        ┌──────▼──────┐      ┌──────────────────┐
-        │   Service   │      │ HPA (CPU 70%)    │
-        └──────┬──────┘      │ 2 → 10 réplicas  │
-        ┌──────▼───────────────────┴──┐
-        │ Deployment: bunzina (:3000)  │
-        │ readiness/liveness /health   │
-        └──────┬───────────────────────┘
-               │ PROD_DB_HOST=postgres
-        ┌──────▼──────────────┐
-        │ StatefulSet: postgres│ + PVC (gp3, 10Gi)
-        └──────────────────────┘
+charts/app-chart/
+  Chart.yaml                 type: application, version 0.1.0
+  values.yaml                defaults genéricos (app/database desligados)
+  templates/
+    _helpers.tpl             labels/selector parametrizados por nome
+    namespace.yaml
+    deployment.yaml          \
+    service.yaml              | aplicação stateless (lê .Values.app)
+    ingress.yaml             |   ingress/hpa só se habilitados
+    hpa.yaml                 |
+    configmap.yaml           |
+    secret.yaml              /
+    postgres-statefulset.yaml \
+    postgres-service.yaml      | banco opcional (lê .Values.database)
+    postgres-secret.yaml      /
 ```
 
+## O que renderiza
+
+| Bloco | Recursos | Condição |
+| --- | --- | --- |
+| `app` | Deployment, Service, ConfigMap, Secret | sempre |
+| `app.ingress` | Ingress (ALB) | `app.ingress.enabled` |
+| `app.autoscaling` | HorizontalPodAutoscaler | `app.autoscaling.enabled` |
+| `database` | StatefulSet, Service headless, Secret (+ PVC) | `database.enabled` |
+| — | Namespace | sempre |
+
 ---
 
-## Pré-requisitos
+## Como consumir (umbrella)
 
-- Cluster Kubernetes (EKS) com a `StorageClass` **`gp3`** e o **EBS CSI driver** (PVC do Postgres).
-- **AWS Load Balancer Controller** instalado, para o `Ingress` provisionar o ALB.
-- Helm ≥ 3.12.
+No repo da aplicação, crie um umbrella que dependa do `app-chart`:
 
-> A infraestrutura é provisionada pelo Terraform no repositório [Bunzina/bunzina](https://github.com/Bunzina/bunzina) (`infra/`).
+```yaml
+# <app>/charts/<app>-chart/Chart.yaml
+apiVersion: v2
+name: bunzina-chart
+type: application
+version: 0.1.0
+dependencies:
+  - name: app-chart
+    version: "0.1.0"
+    repository: "file://../../../bunzina-chart/charts/app-chart"   # repos lado a lado
+    # nos guias 04+: repository: "oci://<conta>.dkr.ecr.us-east-1.amazonaws.com"
+```
 
----
-
-## Instalação
-
-### A partir do código (local)
+```yaml
+# <app>/charts/<app>-chart/values.yaml — tudo aninhado sob "app-chart"
+app-chart:
+  namespace: bunzina
+  app:
+    name: bunzina
+    image: { repository: <ecr>/bunzina, tag: "" }
+    ingress: { enabled: true, className: alb, annotations: {...} }
+    autoscaling: { enabled: true, minReplicas: 2, maxReplicas: 10, targetCPU: 70 }
+    config: { APP_ENV: prod, PROD_DB_HOST: postgres, ... }
+    secret: { JWT_SECRET: ..., PROD_DB_USER: ..., ... }
+  database:
+    enabled: true
+    name: postgres
+    persistence: { storage: 10Gi, storageClassName: gp3 }
+    secret: { POSTGRES_USER: bun, POSTGRES_PASSWORD: change-me, POSTGRES_DB: bunzina }
+```
 
 ```bash
-helm install bunzina charts/bunzina \
+helm dependency build charts/bunzina-chart      # resolve o app-chart
+helm install bunzina charts/bunzina-chart \
   --namespace bunzina --create-namespace \
-  --set image.repository=<conta>.dkr.ecr.us-east-1.amazonaws.com/bunzina \
-  --set image.tag=<sha-da-imagem>
+  --set app-chart.app.image.tag=<sha-da-imagem>
 ```
 
-### A partir do ECR (OCI)
-
-```bash
-# Autentica o Helm no registry OCI do ECR
-aws ecr get-login-password --region us-east-1 \
-  | helm registry login --username AWS --password-stdin <conta>.dkr.ecr.us-east-1.amazonaws.com
-
-# Instala/atualiza puxando o chart publicado
-helm upgrade --install bunzina \
-  oci://<conta>.dkr.ecr.us-east-1.amazonaws.com/bunzina-chart \
-  --version 0.1.0 \
-  --namespace bunzina --create-namespace \
-  --set image.tag=<sha-da-imagem>
-```
-
-### Verificar e desinstalar
-
-```bash
-helm status bunzina -n bunzina
-kubectl get pods -n bunzina
-
-helm uninstall bunzina -n bunzina
-```
+> Para um app **sem banco**, basta `database.enabled: false`. Para um app **sem
+> ingress**, `app.ingress.enabled: false` (use `service.type: LoadBalancer`).
 
 ---
 
-## Principais valores (`values.yaml`)
+## Principais valores (`app-chart`)
 
 | Chave | Padrão | Descrição |
 | --- | --- | --- |
-| `namespace` | `bunzina` | Namespace onde tudo é criado |
-| `image.repository` | ECR `.../bunzina` | Imagem da API |
-| `image.tag` | `""` | Tag da imagem (cai em `appVersion` se vazio) |
-| `replicaCount` | `2` | Réplicas (ignorado quando o HPA está ligado) |
-| `resources` | requests/limits | CPU/memória da API |
-| `config` | mapa | Variáveis não-sensíveis → `ConfigMap` |
-| `secret` | mapa | Credenciais (JWT, DB, SMTP) → `Secret` |
-| `service.port` | `80` | Porta do `Service` |
-| `ingress.enabled` | `true` | Cria o `Ingress` (ALB) |
-| `ingress.className` | `alb` | IngressClass do AWS LB Controller |
-| `autoscaling.enabled` | `true` | Liga o `HPA` (2 → 10, CPU 70%) |
-| `postgres.enabled` | `true` | Sobe o Postgres in-cluster |
-| `postgres.storage` | `10Gi` | Tamanho do volume EBS |
-| `postgres.storageClassName` | `gp3` | StorageClass do PVC |
-
-> Sobrescreva com `--set chave=valor` ou um arquivo próprio via `-f meus-values.yaml`.
-
-> ⚠️ Os valores de `secret` e `postgres.password` no `values.yaml` são apenas placeholders (`change-me`). Em produção, passe-os via `--set`/`-f` fora do versionamento.
+| `namespace` | `default` | Namespace dos recursos |
+| `app.name` | `app` | Nome do Deployment/Service/Ingress/HPA |
+| `app.image.repository` / `.tag` | `""` | Imagem (tag cai em `appVersion` se vazia) |
+| `app.containerPort` | `3000` | Porta do container |
+| `app.service.port` | `80` | Porta do Service |
+| `app.ingress.enabled` | `false` | Cria o Ingress (ALB) |
+| `app.autoscaling.enabled` | `false` | Liga o HPA |
+| `app.config` / `app.secret` | `{}` | Mapas → ConfigMap / Secret |
+| `database.enabled` | `false` | Sobe o Postgres in-cluster |
+| `database.name` | `postgres` | Nome do StatefulSet/Service (= `PROD_DB_HOST`) |
+| `database.persistence.storage` | `1Gi` | Tamanho do PVC |
+| `database.persistence.storageClassName` | `""` | StorageClass do PVC |
+| `database.secret` | `{}` | `POSTGRES_USER/PASSWORD/DB` |
 
 ---
 
-## Publicação
+## Pré-requisitos do cluster (para o Bunzina)
 
-O chart é empacotado e enviado ao ECR como OCI:
+- `StorageClass` **`gp3`** + EBS CSI driver (PVC do Postgres).
+- **AWS Load Balancer Controller** (para o Ingress virar ALB).
+- **metrics-server** (para o HPA por CPU).
+
+> Infra provisionada pelo Terraform em [Bunzina/bunzina](https://github.com/Bunzina/bunzina) (`infra/`).
+
+---
+
+## Publicação (OCI)
+
+O `app-chart` é publicado no ECR como artefato OCI:
 
 ```bash
-helm package charts/bunzina
-helm push bunzina-chart-0.1.0.tgz oci://<conta>.dkr.ecr.us-east-1.amazonaws.com
+helm package charts/app-chart
+helm push app-chart-0.1.0.tgz oci://<conta>.dkr.ecr.us-east-1.amazonaws.com
 ```
 
-O `helm push` usa o **nome do chart** (`Chart.yaml`: `bunzina-chart`) como nome do repositório no registry. Para publicar uma nova versão, suba o campo `version` no `Chart.yaml`.
+O `helm push` usa o **nome do chart** (`app-chart`) como repositório no registry.
+Suba `version` no `Chart.yaml` a cada nova versão.
