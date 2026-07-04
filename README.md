@@ -18,7 +18,6 @@ charts/app-chart/
   values.yaml                defaults genéricos (app/database desligados)
   templates/
     _helpers.tpl             labels/selector parametrizados por nome
-    namespace.yaml
     deployment.yaml          \
     service.yaml              | aplicação stateless (lê .Values.app)
     ingress.yaml             |   ingress/hpa só se habilitados
@@ -38,7 +37,9 @@ charts/app-chart/
 | `app.ingress` | Ingress (ALB) | `app.ingress.enabled` |
 | `app.autoscaling` | HorizontalPodAutoscaler | `app.autoscaling.enabled` |
 | `database` | StatefulSet, Service headless, Secret (+ PVC) | `database.enabled` |
-| — | Namespace | sempre |
+
+> O `Namespace` **não** é criado pelo chart — use `helm install --create-namespace`
+> (o chart só coloca os recursos em `namespace`).
 
 ---
 
