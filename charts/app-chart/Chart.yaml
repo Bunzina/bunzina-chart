@@ -2,5 +2,5 @@ apiVersion: v2
 name: app-chart
 description: Chart genérico para aplicações stateless + banco in-cluster opcional
 type: application
-version: 0.1.0
+version: 0.1.1
 appVersion: "1.0.0"
