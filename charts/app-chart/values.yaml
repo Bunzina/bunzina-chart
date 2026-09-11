@@ -23,7 +23,19 @@ app:
     targetCPU: 70
   resources: {}
   probes:
+    # `path` é o fallback; defina readinessPath/livenessPath para separar as probes.
     path: /health
+    readinessPath: ""
+    livenessPath: ""
+  metrics:
+    enabled: false
+    path: /metrics
+    serviceMonitor:
+      # Requer as CRDs do Prometheus Operator (kube-prometheus-stack) já instaladas.
+      enabled: false
+      interval: 15s
+      scrapeTimeout: 10s
+      labels: {}
   config: {}
   secret: {}
 
