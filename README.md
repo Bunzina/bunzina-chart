@@ -14,14 +14,15 @@ preenche os valores. É o padrão **subchart/umbrella** do Helm.
 
 ```
 charts/app-chart/
-  Chart.yaml                 type: application, version 0.1.0
+  Chart.yaml                 type: application, version 0.2.0
   values.yaml                defaults genéricos (app/database desligados)
   templates/
     _helpers.tpl             labels/selector parametrizados por nome
     deployment.yaml          \
     service.yaml              | aplicação stateless (lê .Values.app)
-    ingress.yaml             |   ingress/hpa só se habilitados
+    ingress.yaml             |   ingress/hpa/serviceMonitor só se habilitados
     hpa.yaml                 |
+    servicemonitor.yaml      |
     configmap.yaml           |
     secret.yaml              /
     postgres-statefulset.yaml \
@@ -36,6 +37,7 @@ charts/app-chart/
 | `app` | Deployment, Service, ConfigMap, Secret | sempre |
 | `app.ingress` | Ingress (ALB) | `app.ingress.enabled` |
 | `app.autoscaling` | HorizontalPodAutoscaler | `app.autoscaling.enabled` |
+| `app.metrics.serviceMonitor` | ServiceMonitor (Prometheus Operator) | `app.metrics.serviceMonitor.enabled` |
 | `database` | StatefulSet, Service headless, Secret (+ PVC) | `database.enabled` |
 
 > O `Namespace` **não** é criado pelo chart — use `helm install --create-namespace`
@@ -97,10 +99,18 @@ helm install bunzina charts/bunzina-chart \
 | `namespace` | `default` | Namespace dos recursos |
 | `app.name` | `app` | Nome do Deployment/Service/Ingress/HPA |
 | `app.image.repository` / `.tag` | `""` | Imagem (tag cai em `appVersion` se vazia) |
-| `app.containerPort` | `3000` | Porta do container |
+| `app.containerPort` | `3000` | Porta do container (nomeada `http`) |
 | `app.service.port` | `80` | Porta do Service |
 | `app.ingress.enabled` | `false` | Cria o Ingress (ALB) |
 | `app.autoscaling.enabled` | `false` | Liga o HPA |
+| `app.probes.path` | `/health` | Path usado pelas duas probes (fallback) |
+| `app.probes.readinessPath` | `""` | Path da readiness probe (cai em `probes.path` se vazio) |
+| `app.probes.livenessPath` | `""` | Path da liveness probe (cai em `probes.path` se vazio) |
+| `app.metrics.serviceMonitor.enabled` | `false` | Cria o ServiceMonitor (requer CRDs do Prometheus Operator) |
+| `app.metrics.path` | `/metrics` | Path de scrape das métricas (porta `http`) |
+| `app.metrics.serviceMonitor.interval` | `15s` | Intervalo de scrape |
+| `app.metrics.serviceMonitor.scrapeTimeout` | `10s` | Timeout de scrape |
+| `app.metrics.serviceMonitor.labels` | `{}` | Labels extras no ServiceMonitor (ex.: `release: kube-prometheus-stack`) |
 | `app.config` / `app.secret` | `{}` | Mapas → ConfigMap / Secret |
 | `database.enabled` | `false` | Sobe o Postgres in-cluster |
 | `database.name` | `postgres` | Nome do StatefulSet/Service (= `PROD_DB_HOST`) |
@@ -115,6 +125,7 @@ helm install bunzina charts/bunzina-chart \
 - `StorageClass` **`gp3`** + EBS CSI driver (PVC do Postgres).
 - **AWS Load Balancer Controller** (para o Ingress virar ALB).
 - **metrics-server** (para o HPA por CPU).
+- **CRDs do Prometheus Operator** / kube-prometheus-stack (só se `app.metrics.serviceMonitor.enabled`).
 
 > Infra provisionada pelo Terraform em [Bunzina/bunzina](https://github.com/Bunzina/bunzina) (`infra/`).
 
