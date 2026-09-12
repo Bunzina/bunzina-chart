@@ -33,6 +33,11 @@ jobs:
           aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }} # Learner Lab: credencial temporária
           aws-region: ${{ env.AWS_REGION }}
 
+      - name: Ensure ECR repository exists
+        run: |
+          aws ecr describe-repositories --repository-names app-chart --region "$AWS_REGION" \
+            || aws ecr create-repository --repository-name app-chart --region "$AWS_REGION"
+
       - name: Resolve ECR host + chart version
         id: meta
         run: |
