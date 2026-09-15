@@ -6,6 +6,7 @@ on:
     paths:
       - "charts/**"
       - ".github/workflows/publish-chart.yml"
+  workflow_dispatch:
 
 env:
   AWS_REGION: us-east-1
